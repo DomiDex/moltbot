@@ -218,5 +218,11 @@ export function resolveGatewayPort(
   if (typeof configPort === "number" && Number.isFinite(configPort)) {
     if (configPort > 0) return configPort;
   }
+  // Standard PaaS PORT env var (Railway, Render, Heroku, etc.) as fallback
+  const paasPort = env.PORT?.trim();
+  if (paasPort) {
+    const parsed = Number.parseInt(paasPort, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
   return DEFAULT_GATEWAY_PORT;
 }

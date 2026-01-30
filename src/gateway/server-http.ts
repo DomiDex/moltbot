@@ -235,6 +235,13 @@ export function createGatewayHttpServer(opts: {
     // Don't interfere with WebSocket upgrades; ws handles the 'upgrade' event.
     if (String(req.headers.upgrade ?? "").toLowerCase() === "websocket") return;
 
+    // Health check endpoint for load balancers / PaaS platforms
+    if (req.url === "/health" || req.url === "/healthz") {
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      res.end("ok");
+      return;
+    }
+
     try {
       const configSnapshot = loadConfig();
       const trustedProxies = configSnapshot.gateway?.trustedProxies ?? [];

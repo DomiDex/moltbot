@@ -230,6 +230,20 @@ describe("Nix integration (U3, U5, U9)", () => {
         expect(resolveGatewayPort({ gateway: { port: 19003 } })).toBe(19003);
       });
     });
+
+    it("falls back to PORT env var when CLAWDBOT_GATEWAY_PORT and config are unset", async () => {
+      await withEnvOverride({ CLAWDBOT_GATEWAY_PORT: undefined, PORT: "8080" }, async () => {
+        const { resolveGatewayPort } = await import("./config.js");
+        expect(resolveGatewayPort({})).toBe(8080);
+      });
+    });
+
+    it("prefers config over PORT env var", async () => {
+      await withEnvOverride({ CLAWDBOT_GATEWAY_PORT: undefined, PORT: "8080" }, async () => {
+        const { resolveGatewayPort } = await import("./config.js");
+        expect(resolveGatewayPort({ gateway: { port: 19004 } })).toBe(19004);
+      });
+    });
   });
 
   describe("U9: telegram.tokenFile schema validation", () => {
