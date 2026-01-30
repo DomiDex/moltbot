@@ -94,3 +94,93 @@ Download a backup at:
 - `https://<your-railway-domain>/setup/export`
 
 This exports your Moltbot state + workspace so you can migrate to another host without losing config or memory.
+
+## Cloudflare Tunnel (custom domain)
+
+By default Railway gives you a generated `.up.railway.app` domain. If you want a custom domain with DDoS protection, WAF, and Cloudflare Zero Trust capabilities, you can route traffic through a Cloudflare Tunnel instead of Railway's built-in HTTP proxy.
+
+Traffic flow: `User → Cloudflare Edge (HTTPS) → cloudflared (Railway internal) → moltbot-gateway:8080 (HTTP)`
+
+### Prerequisites
+
+- A Cloudflare account (free plan works)
+- A domain managed by Cloudflare (DNS on Cloudflare)
+- A working Moltbot Railway deployment (follow the steps above first)
+
+### 1. Create a Cloudflare Tunnel
+
+1. Open the [Cloudflare Zero Trust dashboard](https://one.dash.cloudflare.com/)
+2. Go to **Networks → Tunnels**
+3. Click **Create a tunnel** and choose **Cloudflared** as the connector
+4. Name it (e.g. `moltbot-railway`)
+5. Copy the **Tunnel Token** — you will need it in the next step
+
+### 2. Add a cloudflared service to Railway
+
+In the same Railway project as your `moltbot-gateway` service, add a new service:
+
+- **Source:** Docker image `cloudflare/cloudflared:latest`
+- **Start command:** `cloudflared tunnel --no-autoupdate run`
+- **Environment variable:** `TUNNEL_TOKEN` — paste the token from step 1
+- No volume needed (stateless)
+- No public networking needed
+
+### 3. Configure the public hostname
+
+Back in the Cloudflare Zero Trust dashboard, open your tunnel config and add a public hostname:
+
+| Field | Value |
+|-------|-------|
+| **Subdomain** | your choice (e.g. `bot`) |
+| **Domain** | your Cloudflare-managed domain |
+| **Service type** | `HTTP` |
+| **Service URL** | `moltbot-gateway.railway.internal:8080` |
+
+<Note>
+The hostname `moltbot-gateway.railway.internal` comes from Railway's internal DNS. If your Railway service has a different name, adjust accordingly.
+</Note>
+
+Under **Additional application settings** for the hostname:
+
+- **No TLS Verify:** enabled (the internal connection is plain HTTP)
+- **WebSockets:** enabled (required for Moltbot real-time communication)
+
+Cloudflare automatically creates a CNAME record pointing your subdomain to the tunnel.
+
+### 4. Enable internal networking on moltbot-gateway
+
+In Railway, go to your `moltbot-gateway` service settings and enable **Private Networking** so cloudflared can reach it over the internal network.
+
+Once the tunnel is confirmed working, you can optionally disable the Railway **HTTP Proxy** (public domain) so all traffic goes through Cloudflare.
+
+### 5. Gateway config adjustments
+
+Since TLS terminates at the Cloudflare edge and the internal hop between cloudflared and moltbot-gateway is plain HTTP, enable insecure auth in the Control UI config:
+
+```json5
+{
+  gateway: {
+    controlUi: {
+      allowInsecureAuth: true
+    }
+  }
+}
+```
+
+**Client IP resolution (optional):** The gateway uses `trustedProxies` for `X-Forwarded-For` header parsing. Railway's internal IPs may change on redeploy, so you can skip this initially — token-based auth works without it. If you need real client IPs later, check cloudflared's internal IP from Railway logs and add it:
+
+```json5
+{
+  gateway: {
+    trustedProxies: ["<cloudflared-internal-ip>"]
+  }
+}
+```
+
+### Verification
+
+1. Cloudflare Zero Trust dashboard shows the tunnel as **Healthy**
+2. Railway logs for `moltbot-gateway` show `Gateway listening on 0.0.0.0:8080`
+3. `https://bot.yourdomain.com/setup` loads and accepts your setup password
+4. `https://bot.yourdomain.com/moltbot` loads and WebSocket connects
+5. Configure a channel (Telegram, Discord, etc.) via the setup wizard and send a test message
